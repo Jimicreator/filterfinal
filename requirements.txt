@@ -1,6 +1,4 @@
 python-telegram-bot==20.7
-pymongo
 flask
+pymongo
 gunicorn
-uuid
-serverless-wsgi
