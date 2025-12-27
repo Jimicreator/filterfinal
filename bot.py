@@ -34,11 +34,15 @@ ptb_app = (
     Application
     .builder()
     .token(TOKEN)
-    .updater(None)   # <-- prevents Updater from being created
+    .updater(None)   # webhook-only mode
     .build()
 )
 
+# --- initialize PTB app once at startup ---
+async def _init_app():
+    await ptb_app.initialize()
 
+asyncio.get_event_loop().run_until_complete(_init_app())
 
 # -------- LOGGING --------
 def log_event(event_type, user_id=None, extra=None):
@@ -301,4 +305,5 @@ def health():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
 
