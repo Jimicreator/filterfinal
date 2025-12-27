@@ -204,7 +204,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     await update.message.reply_text(
-        "⚖️ **Adalat Library**\n\nType a course name to search.\nExample: React, Python"
+        "⚖️ **Madam JI Misplaced**\n\nType a course name to search.\nExample: React, Python"
     )
 
 
@@ -249,6 +249,8 @@ async def channel_post_listener(update: Update, context: ContextTypes.DEFAULT_TY
             filename = "Untitled File"
         # --------------------------
         # ===== New Caption System =====
+        
+
 base_title = filename or "Lecture"
 
 title = sanitize_caption(msg.caption, base_title)
