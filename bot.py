@@ -167,14 +167,20 @@ async def channel_post_listener(update: Update, context: ContextTypes.DEFAULT_TY
     msg = update.channel_post
     if msg.video or msg.document:
         token = str(uuid.uuid4())
-        filename = msg.caption.split("\n")[0] if msg.caption else "File"
+        if msg.document:
+    filename = msg.document.file_name or "Untitled"
+elif msg.video and msg.caption:
+    filename = msg.caption.split("\n")[0]
+else:
+    filename = "Untitled File"
+
         caption = get_clean_caption(msg.caption, filename)
 
         file_data = {
             "token": token,
             "msg_id": msg.message_id,
             "name": filename[:50],
-            "caption": caption,
+            "caption": caption + "\n\nDelivered via 👩‍🏫 MADAM JI\n📢 Updates: @THEOGONES\n🏠 Community: @Warriors_hub",
         }
 
         courses_col.update_one(
@@ -213,10 +219,24 @@ async def add_lock(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Usage: /addlock -100xxxxxxxx")
 
 
+from difflib import SequenceMatcher
+
+def normalize(text):
+    return " ".join(text.lower().strip().split())
+
+def score_match(query, title):
+    q = normalize(query)
+    t = normalize(title)
+
+    if q == t:
+        return 100
+    if q in t:
+        return 80
+    return int(SequenceMatcher(None, q, t).ratio() * 60)
+
 async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     query = update.message.text
-
     log_event("search", user_id, {"query": query})
 
     allowed, _ = await check_access(user_id)
@@ -224,40 +244,79 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🔒 Join channel first.")
         return
 
-    results = list(
-        courses_col.find(
-            {"title": {"$regex": query, "$options": "i"}, "status": "live"}
-        ).limit(5)
-    )
+    qnorm = normalize(query)
 
-    if not results:
+    results = list(courses_col.find({"status": "live"}))
+    ranked = []
+
+    for c in results:
+        s = score_match(qnorm, c["title"])
+        if s > 25:
+            ranked.append((s, c))
+
+    ranked.sort(reverse=True, key=lambda x: x[0])
+    ranked = [c for _, c in ranked][:8]
+
+    if not ranked:
         await update.message.reply_text("❌ No courses found.")
         return
 
     buttons = [
         [InlineKeyboardButton(f"📚 {c['title']}", callback_data=f"view|{c['_id']}")]
-        for c in results
+        for c in ranked
     ]
 
     await update.message.reply_text(
-        f"Found {len(results)} courses:",
+        f"Found {len(ranked)} matching courses:",
         reply_markup=InlineKeyboardMarkup(buttons),
     )
 
 
+PAGE_SIZE = 10
+
 async def menu_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    _, course_id = query.data.split("|")
+    data = query.data.split("|")
+    action = data[0]
 
     from bson.objectid import ObjectId
-    course = courses_col.find_one({"_id": ObjectId(course_id)})
 
-    msg = f"💿 **{course['title']}**\n\n"
-    for f in course["files"]:
+    if action == "view":
+        course_id = data[1]
+        page = 0
+    else:
+        course_id = data[1]
+        page = int(data[2])
+
+    course = courses_col.find_one({"_id": ObjectId(course_id)})
+    files = course["files"]
+
+    total = len(files)
+    start = page * PAGE_SIZE
+    end = start + PAGE_SIZE
+    page_files = files[start:end]
+
+    pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+
+    msg = f"📚 **{course['title']}**\nPage {page+1} / {pages}\n\n"
+
+    for f in page_files:
         link = f"https://t.me/{context.bot.username}?start={f['token']}"
         msg += f"📄 [{f['name']}]({link})\n"
 
-    await query.message.reply_text(msg, parse_mode="Markdown")
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("⬅ Prev", callback_data=f"page|{course_id}|{page-1}"))
+    nav.append(InlineKeyboardButton("🏠 Menu", callback_data=f"view|{course_id}"))
+    if end < total:
+        nav.append(InlineKeyboardButton("Next ➡", callback_data=f"page|{course_id}|{page+1}"))
+
+    await query.message.reply_text(
+        msg,
+        reply_markup=InlineKeyboardMarkup([nav]),
+        parse_mode="Markdown"
+    )
+
 
 
 async def join_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
