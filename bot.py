@@ -164,15 +164,21 @@ async def channel_post_listener(update: Update, context: ContextTypes.DEFAULT_TY
     if not state or state.get("mode") != "uploading":
         return
 
-    msg = update.channel_post
-    if msg.video or msg.document:
-        token = str(uuid.uuid4())
-        if msg.document:
-    filename = msg.document.file_name or "Untitled"
-elif msg.video and msg.caption:
-    filename = msg.caption.split("\n")[0]
-else:
-    filename = "Untitled File"
+   msg = update.channel_post
+
+if msg.video or msg.document:
+    token = str(uuid.uuid4())
+
+    # ----- filename logic (correct + safe) -----
+    if msg.document:
+        filename = msg.document.file_name or "Untitled"
+
+    elif msg.video and msg.caption:
+        filename = msg.caption.split("\n")[0]
+
+    else:
+        filename = "Untitled File"
+    # ------------------------------------------
 
         caption = get_clean_caption(msg.caption, filename)
 
@@ -365,6 +371,7 @@ def health():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
 
 
 
