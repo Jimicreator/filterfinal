@@ -244,41 +244,40 @@ async def channel_post_listener(update: Update, context: ContextTypes.DEFAULT_TY
         if msg.document:
             filename = msg.document.file_name or "Untitled"
         elif msg.video and msg.caption:
-            filename = msg.caption.split("\n")[0]
+            filename = msg.caption.split("\n")[0].strip()
         else:
             filename = "Untitled File"
         # --------------------------
+
         # ===== New Caption System =====
-        
+        base_title = filename or "Lecture"
 
-base_title = filename or "Lecture"
+        title = sanitize_caption(msg.caption, base_title)
 
-title = sanitize_caption(msg.caption, base_title)
+        final_caption = (
+            f"📘 {title}\n\n"
+            f"Delivered via {BOT_NAME}\n"
+            f"👤 Creator: {CREATOR}\n"
+            f"📢 Updates: {UPDATES}\n"
+            f"🏠 Community: {COMMUNITY}"
+        )
 
-final_caption = (
-    f"📘 {title}\n\n"
-    f"Delivered via {BOT_NAME}\n"
-    f"👤 Creator: {CREATOR}\n"
-    f"📢 Updates: {UPDATES}\n"
-    f"🏠 Community: {COMMUNITY}"
-)
+        file_data = {
+            "token": token,
+            "msg_id": msg.message_id,
+            "name": filename[:50],
+            "caption": final_caption,
+        }
 
-file_data = {
-    "token": token,
-    "msg_id": msg.message_id,
-    "name": filename[:50],
-    "caption": final_caption,
-}
+        courses_col.update_one(
+            {"_id": state["course_id"]},
+            {"$push": {"files": file_data}},
+        )
 
-courses_col.update_one(
-    {"_id": state['course_id']},
-    {"$push": {"files": file_data}},
-)
+        log_event("file_indexed", ADMIN_ID, {"name": filename})
+        print("Indexed:", filename)
+        # ===== End Caption System =====
 
-log_event("file_indexed", ADMIN_ID, {"name": filename})
-print("Indexed:", filename)
-
-# ===== End Caption System =====
  
 async def finish_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # only admin can finish uploads
