@@ -157,6 +157,7 @@ async def new_course(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def channel_post_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Only react in the vault channel
     if update.channel_post.chat.id != VAULT_CHANNEL_ID:
         return
 
@@ -164,19 +165,19 @@ async def channel_post_listener(update: Update, context: ContextTypes.DEFAULT_TY
     if not state or state.get("mode") != "uploading":
         return
 
-msg = update.channel_post
+    msg = update.channel_post
 
-if msg.video or msg.document:
-    token = str(uuid.uuid4())
+    if msg.video or msg.document:
+        token = str(uuid.uuid4())
 
-    # ----- filename logic -----
-    if msg.document:
-        filename = msg.document.file_name or "Untitled"
-    elif msg.video and msg.caption:
-        filename = msg.caption.split("\n")[0]
-    else:
-        filename = "Untitled File"
-    # --------------------------
+        # ----- filename logic -----
+        if msg.document:
+            filename = msg.document.file_name or "Untitled"
+        elif msg.video and msg.caption:
+            filename = msg.caption.split("\n")[0]
+        else:
+            filename = "Untitled File"
+        # --------------------------
 
         caption = get_clean_caption(msg.caption, filename)
 
@@ -188,7 +189,8 @@ if msg.video or msg.document:
         }
 
         courses_col.update_one(
-            {"_id": state["course_id"]}, {"$push": {"files": file_data}}
+            {"_id": state["course_id"]},
+            {"$push": {"files": file_data}},
         )
 
         log_event("file_indexed", ADMIN_ID, {"name": filename})
@@ -356,7 +358,7 @@ ptb_app.add_handler(CallbackQueryHandler(menu_click))
 # -------- WEBHOOK ENDPOINTS --------
 @app.route("/", methods=["POST"])
 def webhook():
-    update = Update.de_json(request.get_json(), ptb_app.bot)
+    update = Update.de_json(request.get_json(force=True), ptb_app.bot)
 
     loop = asyncio.get_event_loop()
     loop.create_task(ptb_app.process_update(update))
@@ -372,6 +374,7 @@ def health():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
 
 
 
