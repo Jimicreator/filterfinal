@@ -12,6 +12,15 @@ from telegram.ext import (
     filters, ContextTypes
 )
 
+# ===== MADAM JI BRAND CONFIG =====
+BOT_NAME = "👩‍🏫 MADAM JI"
+CREATOR = "@jimithemessiah"
+UPDATES = "@THEOGONES"
+COMMUNITY = "@Warriors_hub"
+
+ALLOWED_CHANNELS = {CREATOR, UPDATES, COMMUNITY}
+# =================================
+
 # --- CONFIG ---
 TOKEN = os.environ.get("BOT_TOKEN")
 MONGO_URL = os.environ.get("MONGO_URL")
@@ -57,17 +66,17 @@ def log_event(event_type, user_id=None, extra=None):
 
 
 # -------- HELPERS --------
-def get_clean_caption(text, filename):
-    if not text:
-        text = filename
-    lines = text.split("\n")
-    clean = []
-    for line in lines:
-        if "@" in line or "join" in line.lower() or "t.me" in line:
-            continue
-        clean.append(line)
-    result = "\n".join(clean).strip() or filename
-    return f"{result}\n\nDownloaded via @Adalat_One_Bot ⚖️"
+# def get_clean_caption(text, filename):
+#     if not text:
+#         text = filename
+#     lines = text.split("\n")
+#     clean = []
+#     for line in lines:
+#         if "@" in line or "join" in line.lower() or "t.me" in line:
+#             continue
+#         clean.append(line)
+#     result = "\n".join(clean).strip() or filename
+#     return f"{result}\n\nDownloaded via @Adalat_One_Bot ⚖️"
 
 
 async def check_access(user_id):
@@ -92,6 +101,68 @@ async def check_access(user_id):
     except Exception as e:
         log_event("access_check_error", user_id, {"error": str(e)})
         return False, lock_channel_id
+
+import re
+
+BAD_PATTERNS = [
+    r"(?i)join for more",
+    r"(?i)extracted by",
+    r"(?i)uploaded by",
+    r"(?i)provided by",
+    r"(?i)credits? ",
+    r"(?i)promo",
+    r"(?i)channel",
+]
+
+def clean_line(line: str):
+    line = line.strip()
+    if not line:
+        return None
+
+    # remove lines with foreign @handles
+    if "@" in line:
+        handles = re.findall(r"@\w+", line)
+        for h in handles:
+            if h not in ALLOWED_CHANNELS:
+                return None
+
+    # drop spam / promo lines
+    for pat in BAD_PATTERNS:
+        if re.search(pat, line):
+            return None
+
+    # collapse unicode / fancy titles
+    line = re.sub(r"[^\w\s\-\:\.\(\)\&]", "", line)
+
+    if len(line) < 3:
+        return None
+
+    return line
+
+
+def sanitize_caption(raw_caption, fallback_title):
+    if not raw_caption:
+        return fallback_title
+
+    lines = [clean_line(l) for l in raw_caption.split("\n")]
+    lines = [l for l in lines if l]
+
+    if not lines:
+        return fallback_title
+
+    # Prefer first meaningful line as title
+    title_line = lines[0]
+
+    # Attach remaining lines only if meaningful
+    extra = [l for l in lines[1:] if len(l) > 4]
+
+    body = "\n".join(extra) if extra else ""
+
+    if body:
+        return f"{title_line}\n{body}"
+
+    return title_line
+
 
 
 # -------- HANDLERS --------
@@ -140,9 +211,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def new_course(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
-
     name = " ".join(context.args)
-    res = courses_col.insert_one({"title": name, "status": "uploading", "files": []})
+    res = courses_col.insert_one({"title": name, "status": "draft", "files": []})
 
     settings_col.update_one(
         {"_id": "admin_state"},
@@ -178,34 +248,68 @@ async def channel_post_listener(update: Update, context: ContextTypes.DEFAULT_TY
         else:
             filename = "Untitled File"
         # --------------------------
+        # ===== New Caption System =====
+base_title = filename or "Lecture"
 
-        caption = get_clean_caption(msg.caption, filename)
+title = sanitize_caption(msg.caption, base_title)
 
-        file_data = {
-            "token": token,
-            "msg_id": msg.message_id,
-            "name": filename[:50],
-            "caption": caption + "\n\nDelivered via 👩‍🏫 MADAM JI\n📢 Updates: @THEOGONES\n🏠 Community: @Warriors_hub",
-        }
+final_caption = (
+    f"📘 {title}\n\n"
+    f"Delivered via {BOT_NAME}\n"
+    f"👤 Creator: {CREATOR}\n"
+    f"📢 Updates: {UPDATES}\n"
+    f"🏠 Community: {COMMUNITY}"
+)
 
-        courses_col.update_one(
-            {"_id": state["course_id"]},
-            {"$push": {"files": file_data}},
-        )
+file_data = {
+    "token": token,
+    "msg_id": msg.message_id,
+    "name": filename[:50],
+    "caption": final_caption,
+}
 
-        log_event("file_indexed", ADMIN_ID, {"name": filename})
-        print("Indexed:", filename)
+courses_col.update_one(
+    {"_id": state['course_id']},
+    {"$push": {"files": file_data}},
+)
 
+log_event("file_indexed", ADMIN_ID, {"name": filename})
+print("Indexed:", filename)
 
+# ===== End Caption System =====
+ 
 async def finish_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        # only admin can finish uploads
     if update.effective_user.id != ADMIN_ID:
         return
 
+    state = settings_col.find_one({"_id": "admin_state"})
+
+    # safety check — no active course
+    if not state or "course_id" not in state:
+        await update.message.reply_text("⚠️ No active course upload.")
+        return
+
+    course = courses_col.find_one({"_id": state["course_id"]})
+
+    # if no course or no files → discard draft
+    if not course or len(course.get("files", [])) == 0:
+        courses_col.delete_one({"_id": state["course_id"]})
+        settings_col.update_one({"_id": "admin_state"}, {"$set": {"mode": "idle"}})
+        await update.message.reply_text("❌ No files added. Draft deleted.")
+        return
+
+    # publish valid course
+    courses_col.update_one(
+        {"_id": state["course_id"]},
+        {"$set": {"status": "live"}}
+    )
+
     settings_col.update_one({"_id": "admin_state"}, {"$set": {"mode": "idle"}})
-    courses_col.update_many({"status": "uploading"}, {"$set": {"status": "live"}})
 
     log_event("finish_upload", ADMIN_ID)
-    await update.message.reply_text("✅ Course is Live.")
+    await update.message.reply_text("✅ Course published successfully.")
+
 
 
 async def add_lock(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -361,9 +465,13 @@ def webhook():
     update = Update.de_json(request.get_json(force=True), ptb_app.bot)
 
     # Run the coroutine synchronously inside Flask request context
-    asyncio.run(ptb_app.process_update(update))
-
+    # asyncio.run(ptb_app.process_update(update))
+    
+    loop = asyncio.get_event_loop()
+    loop.create_task(ptb_app.process_update(update))
     return "OK", 200
+
+
 
 @app.route("/health")
 def health():
@@ -372,7 +480,6 @@ def health():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-
 
 
 
