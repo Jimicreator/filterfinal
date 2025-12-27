@@ -360,12 +360,10 @@ ptb_app.add_handler(CallbackQueryHandler(menu_click))
 def webhook():
     update = Update.de_json(request.get_json(force=True), ptb_app.bot)
 
-    loop = asyncio.get_event_loop()
-    loop.create_task(ptb_app.process_update(update))
+    # Run the coroutine synchronously inside Flask request context
+    asyncio.run(ptb_app.process_update(update))
 
     return "OK", 200
-
-
 
 @app.route("/health")
 def health():
@@ -374,6 +372,7 @@ def health():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
 
 
 
