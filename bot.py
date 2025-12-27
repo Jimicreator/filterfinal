@@ -353,7 +353,8 @@ ptb_app.add_handler(CallbackQueryHandler(menu_click))
 @app.route("/", methods=["POST"])
 def webhook():
     update = Update.de_json(request.get_json(force=True), ptb_app.bot)
-    asyncio.run(ptb_app.process_update(update))
+    loop = asyncio.get_event_loop()
+loop.create_task(ptb_app.process_update(update))
     return "OK", 200
 
 
@@ -364,5 +365,6 @@ def health():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
 
 
